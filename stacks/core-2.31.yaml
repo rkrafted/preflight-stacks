@@ -1,0 +1,13 @@
+# Core frameworks for patch 2.31, for a rolled-back game or a 2.31 install.
+id: core-2.31
+name: Core frameworks for 2.31
+game: "2.31"
+members:
+  - {mod: red4ext}
+  - {mod: redscript}
+  - {mod: cet}
+  - {mod: codeware}
+  - {mod: archivexl}
+  - {mod: tweakxl}
+  - {mod: input_loader}
+  - {mod: mod_settings}

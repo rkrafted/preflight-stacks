@@ -1,0 +1,509 @@
+{
+  "name": "Preflight stack runner",
+  "nodes": [
+    {
+      "id": "482aa949-6aa7-4cdd-80b1-5abbcf30bae2",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -560,
+        240
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "a194ecd3-a9e2-4ec8-93c4-ac803317e56e",
+      "name": "Every 30 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -560,
+        440
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 30
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "4bc71f29-faaa-4005-9f98-4aaf72e6e8a9",
+      "name": "Config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -320,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// ---- edit these six paths once ----\n// runner: run-preflight.js in this folder (wraps the CLI so n8n sees one JSON envelope)\n// preflight: the Windows build of the CLI (release workflow, or cargo build --release)\n// stack: your stack file (../stacks/core-2.5.yaml, or one made with add-mod.py)\n// downloads: Vortex's downloads folder - the queue watches it to see a file arrive\nconst cfg = {\n  runner: 'C:\\\\Tools\\\\preflight-stacks\\\\n8n\\\\run-preflight.js',\n  preflight: 'C:\\\\Tools\\\\preflight\\\\preflight.exe',\n  game: 'D:\\\\SteamLibrary\\\\steamapps\\\\common\\\\Cyberpunk 2077',\n  stack: 'C:\\\\Tools\\\\preflight-stacks\\\\stacks\\\\core-2.5.yaml',\n  downloads: 'C:\\\\Users\\\\you\\\\AppData\\\\Roaming\\\\Vortex\\\\downloads\\\\cyberpunk2077',\n  rules: '', // optional signed rules bundle; empty = the state-dir default\n};\n// -----------------------------------\nreturn [{ json: cfg }];\n"
+      }
+    },
+    {
+      "id": "4050aad3-4576-426e-a14f-7d02873609f7",
+      "name": "Plan",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        -80,
+        300
+      ],
+      "parameters": {
+        "command": "=node \"{{$('Config').first().json.runner}}\" \"{{$('Config').first().json.preflight}}\" stack plan \"{{$('Config').first().json.stack}}\" --game \"{{$('Config').first().json.game}}\" --json {{ $('Config').first().json.rules ? ' --rules \"' + $('Config').first().json.rules + '\"' : '' }}"
+      }
+    },
+    {
+      "id": "05ca2af6-be59-447c-90a7-99a6c4bd15cb",
+      "name": "Parse plan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        160,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// stdout is the wrapper's envelope: {exitCode, stdout, stderr}\nlet env;\ntry {\n  env = JSON.parse(($json.stdout || '').trim());\n} catch (e) {\n  throw new Error('run-preflight.js did not return an envelope: ' + (($json.stdout || '') + ($json.stderr || '')).slice(0, 300));\n}\nlet plan;\ntry {\n  plan = JSON.parse((env.stdout || '').trim());\n} catch (e) {\n  throw new Error('stack plan did not return JSON (exit ' + env.exitCode + '): ' + (env.stderr || env.stdout || '').slice(0, 300));\n}\nconst blocked = (plan.members || [])\n  .filter((m) => m.blocked)\n  .map((m) => m.id + ': ' + m.blocked);\nreturn [{ json: Object.assign({}, plan, { exitCode: env.exitCode, blockedCount: blocked.length, blockedText: blocked.join('; ') }) }];\n"
+      }
+    },
+    {
+      "id": "280d76c8-ad4d-4e0b-b4d4-a6db0d691dc2",
+      "name": "Blocked?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        400,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.blockedCount > 0 || $json.exitCode === 3 }}",
+              "operation": "equal",
+              "value2": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "40e27120-3a0d-43e2-bc96-acae9f93a09f",
+      "name": "Stop: blocked",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        640,
+        140
+      ],
+      "parameters": {
+        "errorMessage": "=This stack does not fit the installed build: {{ $json.blockedText || 'see preflight stack plan' }}"
+      }
+    },
+    {
+      "id": "c7602dfb-2b39-47a8-bdd2-dcdd0f56bb12",
+      "name": "Open next page",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        640,
+        400
+      ],
+      "parameters": {
+        "command": "=node \"{{$('Config').first().json.runner}}\" \"{{$('Config').first().json.preflight}}\" stack next \"{{$('Config').first().json.stack}}\" --downloads \"{{$('Config').first().json.downloads}}\" --json"
+      }
+    },
+    {
+      "id": "356e432d-b463-40d4-ae14-b1beca203c40",
+      "name": "Parse step",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        400
+      ],
+      "parameters": {
+        "jsCode": "const env = JSON.parse(($json.stdout || '').trim());\nconst raw = (env.stdout || '').trim();\nconst step = !raw || raw === 'null' ? null : JSON.parse(raw);\nreturn [{ json: {\n  step,\n  current: step ? step.id : null,\n  openedAt: new Date().toISOString(),\n  position: step ? step.position : null,\n  total: step ? step.total : null,\n  page: step ? step.page : null,\n} }];\n"
+      }
+    },
+    {
+      "id": "ed1dccab-c3a5-44ec-9ba2-b6e17932c0ed",
+      "name": "Have a step?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        400
+      ],
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.step !== null }}",
+              "operation": "equal",
+              "value2": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "1d764aa2-b451-49d4-9681-b775bdf369cc",
+      "name": "Done",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1360,
+        560
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "6b01bd4b-ac33-41f9-b78a-abe4c2793c8b",
+      "name": "Wait for download",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1360,
+        300
+      ],
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": 10,
+        "unit": "seconds"
+      }
+    },
+    {
+      "id": "24fdc831-b823-4615-ab77-d9f03088481d",
+      "name": "Poll",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        1600,
+        300
+      ],
+      "parameters": {
+        "command": "=node \"{{$('Config').first().json.runner}}\" \"{{$('Config').first().json.preflight}}\" stack next \"{{$('Config').first().json.stack}}\" --downloads \"{{$('Config').first().json.downloads}}\" --json --no-open"
+      }
+    },
+    {
+      "id": "55fb0b1b-cf1f-4c3e-9f66-420abc105ba6",
+      "name": "Check",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1840,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const env = JSON.parse(($json.stdout || '').trim());\nconst raw = (env.stdout || '').trim();\nconst step = !raw || raw === 'null' ? null : JSON.parse(raw);\nconst opened = new Date($('Parse step').first().json.openedAt).getTime();\nconst waitedMinutes = Math.max(0, Math.round((Date.now() - opened) / 60000));\nconst current = $('Parse step').first().json.current;\n// done = nothing left, waiting = same page still open, advanced = the file landed\nlet state;\nif (env.exitCode !== 0) state = 'error';\nelse if (step === null) state = 'done';\nelse if (step.id === current) state = 'waiting';\nelse state = 'advanced';\nreturn [{ json: { state, waitedMinutes, current, next: step, exitCode: env.exitCode, stderr: (env.stderr || '').trim() } }];\n"
+      }
+    },
+    {
+      "id": "d6285f07-89a2-4e8f-be7e-7836ed182105",
+      "name": "Errored?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        2080,
+        120
+      ],
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.state === 'error' }}",
+              "operation": "equal",
+              "value2": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "d50437ef-f3c5-47d1-89ca-2148911e4697",
+      "name": "Stop: cli error",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        2320,
+        40
+      ],
+      "parameters": {
+        "errorMessage": "=preflight exited {{ $json.exitCode }} while polling: {{ $json.stderr }}"
+      }
+    },
+    {
+      "id": "5475ebe7-45e7-4e39-b8a6-2a9b27806b6e",
+      "name": "Still waiting?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        2320,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.state === 'waiting' }}",
+              "operation": "equal",
+              "value2": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "32468ed4-f76c-4c2f-a27e-55077db59bae",
+      "name": "Stall guard",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        2560,
+        160
+      ],
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.waitedMinutes > 20 }}",
+              "operation": "equal",
+              "value2": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "3f52bd89-b183-40e3-a098-2fe9e6378c78",
+      "name": "Stop: stalled",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        2800,
+        60
+      ],
+      "parameters": {
+        "errorMessage": "=No download for {{ $json.current }} arrived in {{ $json.waitedMinutes }} minutes. Open the page, click 'Mod manager download', or raise the 20-minute guard."
+      }
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every 30 minutes": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Plan": {
+      "main": [
+        [
+          {
+            "node": "Parse plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse plan": {
+      "main": [
+        [
+          {
+            "node": "Blocked?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Blocked?": {
+      "main": [
+        [
+          {
+            "node": "Stop: blocked",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Open next page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Open next page": {
+      "main": [
+        [
+          {
+            "node": "Parse step",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse step": {
+      "main": [
+        [
+          {
+            "node": "Have a step?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Have a step?": {
+      "main": [
+        [
+          {
+            "node": "Wait for download",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for download": {
+      "main": [
+        [
+          {
+            "node": "Poll",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Poll": {
+      "main": [
+        [
+          {
+            "node": "Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check": {
+      "main": [
+        [
+          {
+            "node": "Errored?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Errored?": {
+      "main": [
+        [
+          {
+            "node": "Stop: cli error",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Still waiting?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Still waiting?": {
+      "main": [
+        [
+          {
+            "node": "Open next page",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stall guard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stall guard": {
+      "main": [
+        [
+          {
+            "node": "Stop: stalled",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait for download",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "e1998615-20e2-4217-a379-0fea850da133",
+  "meta": {
+    "instanceId": "preflight-stack-runner"
+  }
+}

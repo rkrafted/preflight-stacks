@@ -1,0 +1,20 @@
+# Template for your own list. Add a member per mod with `python add-mod.py`, or copy the block:
+#
+#   - mod: nexus-12345                 # any unique id; the queue remembers progress by it
+#     name: Better Saves
+#     page: https://www.nexusmods.com/cyberpunk2077/mods/12345?tab=files
+#     file: "*BetterSaves*"            # a fragment of the downloaded file name, so the queue can
+#                                      # tell when it landed. `*` and `?` are allowed.
+#
+# Only the file page goes in here. Preflight never builds a download link: you click
+# "Mod manager download" once per file, Vortex receives the nxm:// handoff and saves the file.
+id: my-mods
+name: My mods
+game: "2.5"
+members:
+  - {mod: red4ext}
+  - {mod: redscript}
+  - {mod: cet}
+  - {mod: codeware}
+  - {mod: archivexl}
+  - {mod: tweakxl}

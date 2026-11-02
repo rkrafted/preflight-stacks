@@ -1,0 +1,17 @@
+# Core frameworks for patch 2.5. Every member is a GitHub release: 0 Nexus clicks.
+# `preflight install core --apply` downloads, sha256-verifies and installs them as one undoable
+# transaction; `preflight stack plan` refuses to start if one has no 2.5 release.
+id: core-2.5
+name: Core frameworks for 2.5
+game: "2.5"
+members:
+  - {mod: red4ext}
+  - {mod: redscript}
+  - {mod: cet}
+  - {mod: codeware}
+  - {mod: archivexl}
+  - {mod: tweakxl}
+  - {mod: input_loader}
+  - {mod: mod_settings}
+  # equipmentex is left out on purpose: its newest stable release targets 2.31, so a 2.5 stack
+  # would only be able to report it as blocked.
